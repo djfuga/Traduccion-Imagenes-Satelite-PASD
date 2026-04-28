@@ -51,3 +51,7 @@ logs/
 # Archivos temporales
 *.tmp
 *.bak
+
+#Config Claude
+CLAUDE.md
+.claude/
