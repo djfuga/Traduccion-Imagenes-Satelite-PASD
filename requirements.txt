@@ -1,0 +1,33 @@
+# ============================================================
+# Dependencias del proyecto: Traducción Satelital <-> Boceto
+# Compatibles con Python 3.10+ y Google Colab (PyTorch 2.0+)
+# ============================================================
+
+# Framework principal de deep learning
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Manipulación de imágenes
+Pillow>=9.0.0
+
+# Álgebra y arrays
+numpy>=1.23.0
+
+# Métricas de evaluación de imágenes
+scikit-image>=0.20.0       # SSIM
+torchmetrics>=1.0.0        # FID y otras métricas
+
+# Visualización
+matplotlib>=3.7.0
+
+# Barras de progreso en notebooks
+tqdm>=4.65.0
+
+# Descarga de tiles cartográficos (para download_maps.py)
+requests>=2.28.0
+
+# Logging avanzado (opcional, para TensorBoard)
+tensorboard>=2.13.0
+
+# Utilidades de notebook
+ipywidgets>=8.0.0          # Widgets interactivos en Colab

@@ -1,0 +1,53 @@
+# ============================================================
+# .gitignore — Archivos a excluir del repositorio
+# ============================================================
+
+# Datos (pueden ser muy pesados, se sincronizan via Drive)
+data/raw/
+data/processed/
+data/samples/
+
+# Checkpoints y pesos de modelos entrenados
+checkpoints/
+
+# Imágenes de resultados generados
+results/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs generados durante entrenamiento
+*.log
+logs/
+
+# Archivos temporales
+*.tmp
+*.bak
