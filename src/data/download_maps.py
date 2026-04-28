@@ -728,149 +728,156 @@ def verificar_integridad_dataset(
 
 
 # ===========================================================================
-# BLOQUE DE VERIFICACION LOCAL
+# DESCARGA REAL DEL DATASET
 # Ejecutar: py -3 src/data/download_maps.py
-# Verifica la logica local sin descargar nada externo (usa imagenes sinteticas).
+#
+# Descarga el dataset Maps de Berkeley (~255 MB) y lo organiza en:
+#   data/raw/maps/        <- archivos originales extraidos del .tar.gz
+#   data/processed/
+#       train/            <- ~1096 imagenes side-by-side 512x256
+#       val/              <- ~1098 imagenes side-by-side 512x256
+#
+# El dataset ya viene pre-dividido en train/ y val/ por Berkeley.
+# No se redistribuye: se conservan los splits originales para que
+# los resultados sean comparables con los del paper Pix2Pix.
+#
+# Tiempo estimado: 5-15 min dependiendo de la conexion de red.
+# Espacio en disco: ~255 MB descarga + ~510 MB extraidos = ~765 MB total.
 # ===========================================================================
 if __name__ == "__main__":
-    import tempfile
+
+    # Rutas definitivas del proyecto (relativas al directorio de trabajo)
+    DIR_RAW       = Path("data/raw")
+    DIR_PROCESSED = Path("data/processed")
 
     print("=" * 65)
-    print("  Verificacion local: download_maps.py")
+    print("  Descarga del dataset Maps (Berkeley / Pix2Pix)")
     print("=" * 65)
+    print(f"  Destino raw       : {DIR_RAW.resolve()}")
+    print(f"  Destino procesado : {DIR_PROCESSED.resolve()}")
+    print()
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
+    # ------------------------------------------------------------------
+    # [1] Descargar y extraer el dataset Maps de Berkeley
+    # ------------------------------------------------------------------
+    # El dataset viene en formato side-by-side (512x256): la mitad
+    # izquierda es la imagen satelite y la derecha el mapa de carreteras.
+    # Berkeley ya lo divide en train/ (~1096 imgs) y val/ (~1098 imgs).
+    print("[1] Descargando dataset Maps de Berkeley...")
+    print(f"    URL: {URL_DATASET_MAPS}")
+    print(f"    Tamano aproximado: ~255 MB")
+    print()
 
-        # ------------------------------------------------------------------
-        # [1] Conversion lat/lon <-> tile
-        # ------------------------------------------------------------------
-        print("\n[1] Conversion lat/lon <-> tile")
-        print("-" * 45)
+    dir_maps = descargar_dataset_maps(
+        directorio_destino=str(DIR_RAW),
+        forzar=False,   # no re-descarga si ya existe
+    )
 
-        # Madrid, Espana: lat=40.4168, lon=-3.7038
-        zoom = 13
-        lat_madrid, lon_madrid = 40.4168, -3.7038
-        tx, ty = lat_lon_a_tile(lat_madrid, lon_madrid, zoom)
-        lat_n, lon_w, lat_s, lon_e = tile_a_bbox(tx, ty, zoom)
+    # Verificar que la estructura extraida es la esperada
+    dir_train_raw = dir_maps / "train"
+    dir_val_raw   = dir_maps / "val"
 
-        print(f"  Madrid (lat={lat_madrid}, lon={lon_madrid}) @ z={zoom}")
-        print(f"  Tile: ({tx}, {ty})")
-        print(f"  Bbox del tile: N={lat_n:.4f}, W={lon_w:.4f}, S={lat_s:.4f}, E={lon_e:.4f}")
-
-        # Verificar que Madrid esta dentro del bounding box del tile
-        assert lat_s <= lat_madrid <= lat_n, "Latitud Madrid fuera del tile"
-        assert lon_w <= lon_madrid <= lon_e, "Longitud Madrid fuera del tile"
-        print("  [OK] Madrid contenido en el tile calculado")
-
-        # Caso borde: polo norte (lat=85)
-        tx_norte, ty_norte = lat_lon_a_tile(85.0, 0.0, zoom)
-        print(f"  Polo Norte aprox (lat=85): tile=({tx_norte}, {ty_norte}) [OK]")
-
-        # ------------------------------------------------------------------
-        # [2] Crear pares side-by-side
-        # ------------------------------------------------------------------
-        print("\n[2] Crear pares side-by-side")
-        print("-" * 45)
-
-        carpeta_a = tmpdir / "dominio_a"
-        carpeta_b = tmpdir / "dominio_b"
-        carpeta_a.mkdir()
-        carpeta_b.mkdir()
-
-        # Crear imagenes sinteticas de 300x200 (tamanos diferentes para probar resize)
-        for i in range(8):
-            # Dominio A: imagen roja con ruido
-            img_a = Image.new("RGB", (300, 200), (200 + i * 5, 50, 50))
-            img_a.save(carpeta_a / f"imagen_{i:03d}.jpg")
-            # Dominio B: imagen azul con ruido
-            img_b = Image.new("RGB", (300, 200), (50, 50, 200 + i * 5))
-            img_b.save(carpeta_b / f"imagen_{i:03d}.jpg")
-
-        # Anadir archivos sin pareja para probar el manejo de errores
-        Image.new("RGB", (256, 256), (0, 255, 0)).save(carpeta_a / "solo_en_a.jpg")
-
-        dir_pares = tmpdir / "pares_side_by_side"
-        n_pares = crear_pares_side_by_side(
-            str(carpeta_a),
-            str(carpeta_b),
-            str(dir_pares),
-            verificar_integridad=True,
+    if not dir_train_raw.exists():
+        raise FileNotFoundError(
+            f"No se encontro {dir_train_raw} tras la extraccion.\n"
+            f"Intenta borrar {dir_maps} y volver a ejecutar."
         )
 
-        assert n_pares == 8, f"Se esperaban 8 pares, se crearon {n_pares}"
+    n_train_raw = len(list(dir_train_raw.glob("*.jpg")))
+    n_val_raw   = len(list(dir_val_raw.glob("*.jpg"))) if dir_val_raw.exists() else 0
+    print(f"\n    Extraidos: {n_train_raw} train | {n_val_raw} val")
 
-        # Verificar dimensiones del primer par (cerrar explicitamente para liberar el handle)
-        with Image.open(list(dir_pares.glob("*.jpg"))[0]) as par_ejemplo:
-            tamano_par = par_ejemplo.size
-        assert tamano_par == (512, 256), f"Tamano incorrecto: {tamano_par}"
-        print(f"  {n_pares} pares creados | Tamano: {tamano_par} | [OK]")
+    # ------------------------------------------------------------------
+    # [2] Copiar a data/processed/ respetando los splits originales
+    # ------------------------------------------------------------------
+    # NO redistribuimos aleatoriamente: Berkeley ya hizo un split
+    # cuidadoso. Redistribuirlo podria introducir data leakage si
+    # alguien compara con resultados publicados en el paper Pix2Pix.
+    print("\n[2] Copiando a data/processed/ (split original de Berkeley)...")
 
-        # ------------------------------------------------------------------
-        # [3] Division train / val / test
-        # ------------------------------------------------------------------
-        print("\n[3] Division train / val / test")
-        print("-" * 45)
+    for modo, dir_origen in [("train", dir_train_raw), ("val", dir_val_raw)]:
+        if not dir_origen.exists():
+            print(f"    [!] {dir_origen} no existe, se omite el modo '{modo}'")
+            continue
 
-        dir_procesado = tmpdir / "procesado"
-        conteo = dividir_dataset(
-            str(dir_pares),
-            str(dir_procesado),
-            ratio_train=0.75,
-            ratio_val=0.125,
-            ratio_test=0.125,
-            semilla=42,
-            copiar=True,
-        )
+        dir_destino = DIR_PROCESSED / modo
+        dir_destino.mkdir(parents=True, exist_ok=True)
 
-        total_split = sum(conteo.values())
-        assert total_split == n_pares, f"Split incompleto: {total_split} != {n_pares}"
-        print(f"  Total dividido: {total_split} | train={conteo.get('train',0)} "
-              f"val={conteo.get('val',0)} test={conteo.get('test',0)} | [OK]")
+        imagenes = sorted(dir_origen.glob("*.jpg"))
+        ya_copiadas = len(list(dir_destino.glob("*.jpg")))
 
-        # Verificar reproducibilidad: misma semilla = misma division
-        conteo2 = dividir_dataset(
-            str(dir_pares),
-            str(tmpdir / "procesado2"),
-            ratio_train=0.75, ratio_val=0.125, ratio_test=0.125,
-            semilla=42, copiar=True,
-        )
-        assert conteo == conteo2, "Division no reproducible con la misma semilla"
-        print("  [OK] Division reproducible con semilla=42")
+        if ya_copiadas == len(imagenes):
+            print(f"    {modo:6s}: ya existen {ya_copiadas} imagenes -> se omite copia")
+            continue
 
-        # ------------------------------------------------------------------
-        # [4] Verificacion de integridad
-        # ------------------------------------------------------------------
-        print("\n[4] Verificacion de integridad del dataset")
-        print("-" * 45)
+        copiadas = 0
+        for ruta in imagenes:
+            destino = dir_destino / ruta.name
+            if not destino.exists():  # no sobreescribir si ya esta
+                shutil.copy2(ruta, destino)
+                copiadas += 1
 
-        resultados = verificar_integridad_dataset(
-            str(dir_procesado),
-            modos=["train", "val", "test"],
-        )
+        total_en_destino = len(list(dir_destino.glob("*.jpg")))
+        print(f"    {modo:6s}: {copiadas} copiadas | {total_en_destino} totales en {dir_destino}")
 
-        for modo, stats in resultados.items():
-            assert stats["corruptas"] == 0, f"Imagenes corruptas en {modo}: {stats['corruptas']}"
-        print("  [OK] Sin imagenes corruptas en ningun modo")
+    # ------------------------------------------------------------------
+    # [3] Verificar integridad de data/processed/
+    # ------------------------------------------------------------------
+    print("\n[3] Verificando integridad de data/processed/...")
 
-        # ------------------------------------------------------------------
-        # [5] Resumen del flujo completo
-        # ------------------------------------------------------------------
-        print("\n[5] Resumen del flujo completo")
-        print("-" * 45)
-        print("  Flujo de datos para dataset propio (tiles):")
-        print("    1. descargar_region(bbox, zoom, tipo='satelite') -> satelite/region.jpg")
-        print("    2. descargar_region(bbox, zoom, tipo='osm')       -> osm/region.jpg")
-        print("    3. crear_pares_side_by_side(satelite/, osm/)      -> pares/region.jpg")
-        print("    4. dividir_dataset(pares/, data/processed/)       -> train/ val/ test/")
-        print("    5. verificar_integridad_dataset(data/processed/)  -> informe OK/corruptas")
-        print()
-        print("  Para el dataset Maps de Berkeley:")
-        print("    1. descargar_dataset_maps('data/raw/')             -> data/raw/maps/")
-        print("    2. dividir_dataset('data/raw/maps/train/', ...)    -> train/ val/ test/")
-        print("    3. O usar los splits ya incluidos (train/ y val/)")
+    modos_existentes = [
+        m for m in ["train", "val"]
+        if (DIR_PROCESSED / m).exists()
+    ]
+
+    resultados = verificar_integridad_dataset(
+        str(DIR_PROCESSED),
+        modos=modos_existentes,
+        eliminar_corruptos=False,   # solo informar, no eliminar
+    )
+
+    n_corruptas_total = sum(r["corruptas"] for r in resultados.values())
+    if n_corruptas_total > 0:
+        print(f"\n  [!] ATENCION: {n_corruptas_total} imagen(es) corruptas detectadas.")
+        print(f"      Vuelve a ejecutar con eliminar_corruptos=True para limpiarlas,")
+        print(f"      o borra data/raw/ y data/processed/ y ejecuta de nuevo.")
+    else:
+        print("\n  Sin imagenes corruptas.")
+
+    # ------------------------------------------------------------------
+    # [4] Mostrar estructura final y resumen
+    # ------------------------------------------------------------------
+    print("\n[4] Estructura final en disco:")
+    print(f"    data/")
+    print(f"    +-- raw/")
+    print(f"    |   +-- maps/")
+
+    for modo in ["train", "val"]:
+        dir_raw_m = dir_maps / modo
+        n = len(list(dir_raw_m.glob("*.jpg"))) if dir_raw_m.exists() else 0
+        print(f"    |       +-- {modo}/   ({n} imagenes originales)")
+
+    print(f"    +-- processed/")
+    for modo in ["train", "val"]:
+        dir_proc_m = DIR_PROCESSED / modo
+        n = len(list(dir_proc_m.glob("*.jpg"))) if dir_proc_m.exists() else 0
+        print(f"            +-- {modo}/   ({n} imagenes 512x256 listas para entrenar)")
+
+    # Mostrar una muestra del formato side-by-side
+    primer_train = next((DIR_PROCESSED / "train").glob("*.jpg"), None)
+    if primer_train:
+        with Image.open(primer_train) as img:
+            w, h = img.size
+        print(f"\n    Formato de cada imagen: {w}x{h} px")
+        print(f"    Mitad izquierda  (0..255):   imagen satelite (entrada del modelo)")
+        print(f"    Mitad derecha  (256..511):   mapa de carreteras (objetivo del modelo)")
 
     print()
     print("=" * 65)
-    print("  [OK] download_maps.py verificado correctamente.")
+    print("  Dataset listo. Para iniciar el entrenamiento ejecuta:")
+    print()
+    print("  py -3 train.py --datos data/processed --direction AtoB")
+    print()
+    print("  AtoB: satelite -> mapa de carreteras")
+    print("  BtoA: mapa de carreteras -> satelite")
     print("=" * 65)
