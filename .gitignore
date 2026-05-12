@@ -12,6 +12,9 @@ checkpoints/
 
 # Imágenes de resultados generados
 results/
+resultados_07/
+resultados_07_v2/
+resultados_comparacion/
 
 # Python
 __pycache__/
@@ -35,6 +38,9 @@ env/
 traducciones_imagenes_satelitales_v2.ipynb
 Traducciones_Imagenes_Satelitales_v2.ipynb
 Traduccion_Imagenes_Satelitales_v2.ipynb
+07_ejecutar_todo.ipynb
+notebooks/08_comparacion_v1_v2.ipynb
+comparacion_v1_v2.py
 
 # IDEs
 .vscode/
@@ -58,3 +64,4 @@ logs/
 #Config Claude
 CLAUDE.md
 .claude/
+entrega/

@@ -15,7 +15,7 @@ Toda la arquitectura está documentada en español con explicaciones matemática
 |---|---|
 | **Generador** | U-Net 256 con 8 niveles de skip connections, Dropout en 3 bloques centrales, activación Tanh |
 | **Discriminador** | PatchGAN 70×70 — clasifica parches locales en lugar de la imagen completa |
-| **Pérdida** | LS-GAN + L1 con λ=100: `L = L_GAN + 100·L_L1` |
+| **Pérdida** | LS-GAN + L1: `L = L_GAN + λ·L_L1` con λ=100 (AtoB) / λ=10 (BtoA) |
 | **Entrenamiento** | Adam (lr=2e-4, β₁=0.5), Mixed Precision (AMP), gradient accumulation ×4 |
 
 ---
@@ -63,7 +63,7 @@ En Google Colab, abre `notebooks/00_setup_colab.ipynb`. Este notebook:
 Para clonar el repositorio desde dentro de Colab:
 
 ```python
-!git clone https://github.com/TU_USUARIO/Traduccion-Imagenes-Satelite-PASD.git
+!git clone https://github.com/djfuga/Traduccion-Imagenes-Satelite-PASD.git
 %cd Traduccion-Imagenes-Satelite-PASD
 ```
 
@@ -109,7 +109,7 @@ Requiere Python 3.10+ y una GPU con al menos 4 GB de VRAM (recomendado), aunque 
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/TU_USUARIO/Traduccion-Imagenes-Satelite-PASD.git
+git clone https://github.com/djfuga/Traduccion-Imagenes-Satelite-PASD.git
 cd Traduccion-Imagenes-Satelite-PASD
 
 # 2. Crear entorno virtual (recomendado)
@@ -152,12 +152,13 @@ python train.py \
     --epocas_decay 100 \
     --amp
 
-# Dirección B→A: mapa → satelital
+# Dirección B→A: mapa → satelital  (lambda_l1=10 evita el mode collapse)
 python train.py \
     --datos data/processed \
     --direction BtoA \
     --epocas 100 \
     --epocas_decay 100 \
+    --lambda_l1 10 \
     --amp
 
 # Reanudar desde el último checkpoint
@@ -174,7 +175,7 @@ Parámetros disponibles:
 | `--epocas_decay` | `100` | Épocas con LR decreciente hasta 0 |
 | `--batch` | `1` | Tamaño de batch (1 es el estándar del paper) |
 | `--lr` | `0.0002` | Learning rate inicial |
-| `--lambda_l1` | `100` | Peso de la pérdida L1 |
+| `--lambda_l1` | `100` | Peso de la pérdida L1 (usar `10` para B→A) |
 | `--gan_mode` | `lsgan` | Tipo de GAN loss (`lsgan` o `vanilla`) |
 | `--grad_accum` | `4` | Pasos de acumulación de gradiente |
 | `--amp` | `False` | Activar Mixed Precision (requiere CUDA) |
@@ -196,13 +197,37 @@ imagen_generada = predecir_imagen('mi_imagen_satelital.jpg', G)
 
 ## Opción C — Solo Inferencia (sin reentrenar)
 
-Si solo quieres probar el modelo con tus propias imágenes y no quieres entrenar desde cero, puedes descargar los pesos preentrenados y ejecutar únicamente el notebook de inferencia.
+Si solo quieres probar el modelo con tus propias imágenes sin entrenar desde cero, descarga los pesos preentrenados desde la página de [Releases](https://github.com/djfuga/Traduccion-Imagenes-Satelite-PASD/releases/latest):
 
-1. Descarga los checkpoints desde [Releases](https://github.com/TU_USUARIO/Traduccion-Imagenes-Satelite-PASD/releases) y colócalos en `checkpoints/sat2sketch/` o `checkpoints/sketch2sat/`
+| Archivo | Dirección | Tamaño |
+|---------|-----------|--------|
+| `generador_AtoB_ep200.pth` | Satelital → Mapa | ~208 MB |
+| `generador_BtoA_ep200.pth` | Mapa → Satelital | ~208 MB |
+
+Son checkpoints reducidos (solo pesos del generador, sin optimizador ni discriminador).
+
+1. Descarga uno o ambos archivos y colócalos en:
+   - `checkpoints/sat2sketch/generador_AtoB_ep200.pth`
+   - `checkpoints/sketch2sat/generador_BtoA_ep200.pth`
 2. Abre `notebooks/05_inference_demo.ipynb`
 3. Ejecuta todas las celdas — el notebook detecta automáticamente el checkpoint más reciente
 
 El notebook acepta cualquier imagen satelital en formato JPG/PNG y genera su mapa correspondiente.
+
+---
+
+## Resultados
+
+Entrenamiento de 200 épocas (100 LR constante + 100 LR decay) sobre el dataset Berkeley Maps con GPU T4 en Google Colab.
+
+| Dirección | SSIM ↑ | L1 ↓ | PSNR ↑ | N |
+|-----------|--------|------|--------|---|
+| **A→B** Satelital → Mapa | 0.794 ± 0.057 | 0.026 ± 0.012 | 27.60 ± 3.71 dB | 200 |
+| **B→A** Mapa → Satelital | 0.218 ± 0.070 | 0.135 ± 0.026 | 15.15 ± 1.94 dB | 200 |
+
+> Referencia Isola et al. (2017): SSIM ≈ 0.49 en A→B sobre este mismo dataset.
+
+**Nota sobre B→A**: las métricas pixel-wise (SSIM/PSNR) son intencionalmente bajas. Usar `λ_L1=100` en esta dirección produce *mode collapse* (imágenes uniformemente oscuras) que infla artificialmente el SSIM. Con `λ_L1=10` el generador aprende texturas satelitales reales a costa de mayor distorsión pixel a pixel — la calidad perceptual es superior a pesar de las métricas numéricas peores (*perception-distortion tradeoff*, Blau & Michaeli 2018).
 
 ---
 
